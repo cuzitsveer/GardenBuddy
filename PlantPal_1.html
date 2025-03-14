@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Arduino Plant Monitoring System</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background-color: #f0f8ff;
+      color: #333;
+      margin: 0;
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+    }
+    h1 {
+      color: #008080;
+    }
+    .container {
+      text-align: center;
+      padding: 20px;
+      border-radius: 10px;
+      background-color: white;
+      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+      width: 80%;
+      max-width: 600px;
+    }
+    .button {
+      background-color: #4CAF50;
+      color: white;
+      padding: 10px 20px;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+      font-size: 16px;
+      margin: 10px;
+    }
+    .button:hover {
+      background-color: #45a049;
+    }
+    .output {
+      font-size: 20px;
+      margin-top: 10px;
+    }
+    .suggestions {
+      margin-top: 20px;
+      font-size: 18px;
+      font-style: italic;
+      color: #555;
+    }
+    .status {
+      margin-top: 20px;
+      font-size: 18px;
+      color: #ff6347;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="container">
+    <h1>Arduino Plant Monitoring System</h1>
+    <button id="connectButton" class="button">Connect to Arduino</button>
+
+    <div id="status" class="status">Status: Not connected</div>
+
+    <div class="output">
+      <p id="temperature">Temperature: --°C</p>
+      <p id="moisture">Soil Moisture: --%</p>
+    </div>
+
+    <div class="suggestions" id="plantSuggestions">
+      <!-- Plant suggestions will appear here -->
+    </div>
+  </div>
+
+  <script>
+    let port;
+    let reader;
+    let decoder;
+    let inputStream;
+
+    async function openSerial() {
+      try {
+        // Request a port and open it
+        port = await navigator.serial.requestPort(); // This opens a dialog to select the Arduino device
+        await port.open({ baudRate: 9600 });  // Open port at 9600 baud rate (as per Arduino setup)
+
+        // Update status
+        document.getElementById('status').innerText = "Status: Connected to Arduino";
+
+        // Get a readable stream from the serial port
+        inputStream = port.readable;
+        reader = inputStream.getReader();
+        decoder = new TextDecoder();
+        readData(reader, decoder);  // Start reading data
+      } catch (err) {
+        console.error("Error opening serial port:", err);
+        document.getElementById('status').innerText = "Status: Error opening serial port";
+      }
+    }
+
+    // Read the data from the Arduino
+    async function readData(reader, decoder) {
+      try {
+        const { value, done } = await reader.read();
+        if (done) {
+          console.log("Stream closed");
+        } else {
+          const data = decoder.decode(value);
+          processArduinoData(data);  // Process the Arduino data (temperature and moisture)
+          readData(reader, decoder);  // Continue reading
+        }
+      } catch (error) {
+        console.error("Error reading data:", error);
+      }
+    }
+
+    // Process the data received from the Arduino
+    function processArduinoData(data) {
+      console.log("Received from Arduino:", data);
+
+      // Parse the received data (temperature and moisture)
+      const regex = /temperature: (\d+\.\d+), moisture: (\d+)/;
+      const matches = data.match(regex);
+
+      if (matches) {
+        const temperature = parseFloat(matches[1]);
+        const moisture = parseInt(matches[2]);
+
+        // Update the UI with the current values
+        document.getElementById('temperature').innerText = `Temperature: ${temperature}°C`;
+        document.getElementById('moisture').innerText = `Soil Moisture: ${moisture}%`;
+
+        // Call Hugging Face API for plant suggestions
+        getPlantSuggestions(temperature, moisture);
+      }
+    }
+
+    // Get plant suggestions based on temperature and moisture
+    async function getPlantSuggestions(temperature, moisture) {
+      try {
+        // Construct a message to send to the Hugging Face API
+        const userInterests = "vegetables"; // Modify this as needed, or get from the user input
+        const inputText = `Suggest crops based on the following conditions:
+        Temperature: ${temperature}°C
+        Moisture: ${moisture}%
+        User Interests: ${userInterests}`;
+
+        const response = await fetch('https://api-inference.huggingface.co/models/gpt2', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer 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', // Replace with your Hugging Face API Key
+          },
+          body: JSON.stringify({ inputs: inputText })
+        });
+
+        const data = await response.json();
+        const suggestions = data[0]?.generated_text || "No suggestions available.";
+
+        // Display plant suggestions
+        document.getElementById('plantSuggestions').innerText = `Plant Suggestions: ${suggestions}`;
+      } catch (error) {
+        console.error('Error getting plant suggestions:', error);
+      }
+    }
+
+    // Start the connection when the page loads
+    document.getElementById("connectButton").addEventListener("click", openSerial);
+
+  </script>
+
+</body>
+</html>
